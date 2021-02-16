@@ -1,0 +1,130 @@
+%{
+    
+open FerrolexAst
+
+open Ferrolex_var
+
+let compteur = ref 1;;
+let hashRules = Hashtbl.create 16;;
+%}
+
+%token<string> CODE
+%token<string> IDENT
+%token<char> CHAR
+%token<string> STRING
+%token<int> INT
+%token AND ANY AS CRD CRG EQUAL EOF EXCEPT KLEENE LET MINUS
+%token PARD PARG PARSE PLUS RULE VERT
+
+%left VERT
+%left concat
+%nonassoc KLEENE CHAR PARD STRING CRD PLUS IDENT
+
+%start file
+
+%%
+
+file<string * ((string * FerrolexAst.regexp) list) * string>:
+    | h = CODE f = file2 {let (l, fe) = f in (h, l, fe)}
+    | f = file2 {let (l, fe) = f in ("", l, fe)}
+;
+
+file2<((string * FerrolexAst.regexp) list) * string>:
+    | d = def f = file2 {f}
+    | f = rulesDef {f}
+;
+
+def<unit>:
+    | LET i = IDENT EQUAL r = regexp_raw {
+        Hashtbl.add hashRules i r
+        }
+;
+
+rulesDef<((string * FerrolexAst.regexp) list) * string>:
+    | RULE name = IDENT EQUAL PARSE l = rulesMatch fileEnd = rulesDef2 {
+        let (liste, bottom) = fileEnd in
+        (name,l)::liste, bottom
+        }
+;
+
+rulesDef2<((string * FerrolexAst.regexp) list) * string>:
+    | AND name = IDENT EQUAL PARSE l = rulesMatch fileEnd = rulesDef2 {
+        let (liste, bottom) = fileEnd in
+        (name,l)::liste, bottom
+        }
+    | f = fileEnd {([], f) }
+;
+
+rulesMatch<FerrolexAst.regexp>:
+    | VERT rc = regexp { rc }
+    | VERT rc = regexp rest = rulesMatch {
+        Union (rc, rest)
+        }
+;
+
+regexp_raw<FerrolexAst.regexp>:
+    | PARD r = regexp_raw PARG {r}
+    | r1 = regexp_raw VERT r2 = regexp_raw {Union (r1, r2)}
+    | r = regexp_raw KLEENE {Star r}
+    | s = STRING {
+        let l = String.length s in
+        let sortie = ref Epsilon in
+        for i = 0 to l-1 do
+            sortie := Concat (!sortie, new_char s.[i])
+        done;
+        !sortie
+        }
+    | c = CHAR {
+        new_char c
+    }
+    | r1 = regexp_raw r2 = regexp_raw %prec concat {
+        Concat (r1, r2)
+    }
+    | CRD i1 = iset CRG {
+            new_chars i1
+    }
+    | r = regexp_raw PLUS {
+        Concat (clean r, Star r)
+    }
+    | i = IDENT {
+        clean (Hashtbl.find hashRules i);
+    }
+;
+
+iset<FerrolexAst.charSet>:
+    | EXCEPT s = iset2 { Except (Any , s)}
+    | s = iset2 EXCEPT s2 = iset2 { Except (s, s2)}
+    | s = iset2 {s}
+;
+
+iset2<FerrolexAst.charSet>:
+    | i = int_or_char { Single i}
+    | i1 = int_or_char MINUS i2 = int_or_char { Segment (i1, i2) }
+    | i = int_or_char s = iset2 { SetUnion (Single i, s)}
+    | i1 = int_or_char MINUS i2 = int_or_char s = iset2 { SetUnion (Segment (i1, i2), s) }
+;
+
+int_or_char<int>:
+    | c = CHAR { int_of_char c}
+    | i = INT {i}
+;
+
+regexp<FerrolexAst.regexp>:
+    | r = regexp_raw AS i = IDENT c = CODE {
+        let num = new_rule () in
+        Hashtbl.add hashCode num c;
+        Hashtbl.add hashNames num (Some i);
+        Concat (r, Character (Rule, num))
+    }
+    | r = regexp_raw c = CODE {
+        let num = new_rule () in
+        Hashtbl.add hashCode num c;
+        Hashtbl.add hashNames num None;
+        Concat (r, Character (Rule, num))
+    }
+;
+
+fileEnd<string>:
+    | EOF { "" }
+    | c = CODE EOF { c }
+;
