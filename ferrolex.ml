@@ -1,8 +1,28 @@
 
 let file = ref ""
+let lang = ref "ocaml"
+let sortie = ref ""
 
+let parse_only = ref false
+let old_version = ref false
+
+type lang = 
+  |Rust
+  |Ocaml
+
+let decryptLang = function
+  |"ocaml" | "ml" -> Ocaml
+  |"rust" | "rs" -> Rust
+  | _ -> failwith "unknown language"
 let main () = 
-  let spectlist = []
+  let spectlist = [
+    "-l", Arg.Set_string lang, "set target language";
+    "-o", Arg.Set_string sortie, "set output file name";
+    "-min-char", Arg.Set_int Ferrolex_utilities.min_char, "set minimum char in iteration";
+    "-max-char", Arg.Set_int Ferrolex_utilities.max_char, "set maximum char in iteration";
+    "--parse-only", Arg.Set parse_only, "stop after parsing";
+    "--old", Arg.Set old_version, "use old version with match (useful with high branching factor)";
+  ]
   in
   Arg.parse spectlist (fun f -> file := f) "";
   if !file = "" then failwith "no file to compile was given";
@@ -16,11 +36,15 @@ let main () =
     print_newline ();
     exit 1)
   in close_in f;
-  print_string "parsed!\n";
-  let outfile = (Filename.chop_suffix !file ".sam" ^ ".ml") in
-  let out = open_out outfile in
-  Ferrolex_utilities.pp_ocaml_main (Format.formatter_of_out_channel out) parsed;
-  close_out out
+  if !parse_only then exit 0;
+  match decryptLang (String.lowercase_ascii !lang) with
+    |Ocaml -> begin
+      let outfile = if !sortie = "" then (Filename.chop_suffix !file ".sam" ^ ".ml") else !sortie in
+      let out = open_out outfile in
+      (if !old_version then Ferrolex_utilities.pp_ocaml_main_old else Ferrolex_utilities.pp_ocaml_main) (Format.formatter_of_out_channel out) parsed;
+      close_out out
+      end
+    |Rust -> failwith "not implemented"
 ;;
 
 main ();;

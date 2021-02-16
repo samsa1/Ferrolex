@@ -1,6 +1,8 @@
 
 open FerrolexAst
 
+let max_char = ref 255;;
+let min_char = ref 0;;
 let rec null = function 
 	| Epsilon -> true 
 	| Character _ -> false
@@ -53,7 +55,7 @@ let make_dfa rule =
     if Smap.mem q !trans then () else begin
       trans := Smap.add q Cmap.empty !trans;
       let t = ref Cmap.empty in
-      for c = 0 to 255 do 
+      for c = !min_char to !max_char do 
         let suite = next_state rule q c in
         t := Cmap.add c suite !t;
         transitions suite
@@ -231,15 +233,10 @@ let pp_ocaml_transition fmt name next liste =
 
 let pp_ocaml_autom_state fmt name (term: int option Imap.t) i transition = 
   Format.fprintf fmt "and %s_%i lexbuf = " name i;
-  print_int i;
   begin match Imap.find i term with 
     |None -> ()
     |Some j -> Format.fprintf fmt "\n\tlexbuf.read <- %i;\n\tlexbuf.pos_e_cnum <- lexbuf.current;\n\t" j
   end;
-  print_string name;
-  print_int i;
-  print_newline ();
-  (*Format.fprintf fmt "lexbuf.current <- lexbuf.current + 1;\n\t";*)
   Format.fprintf fmt "let chr = int_of_char lexbuf.text.[lexbuf.current] in\n";
   let minimized_trans = optimiseTrans transition in
   Cmap.iter (pp_ocaml_transition fmt name) minimized_trans;
@@ -248,14 +245,10 @@ let pp_ocaml_autom_state fmt name (term: int option Imap.t) i transition =
 
 let pp_ocaml_autom_state_old fmt name (term: int option Imap.t) i transition = 
   Format.fprintf fmt "and %s_%i lexbuf = " name i;
-  print_int i;
   begin match Imap.find i term with 
     |None -> ()
     |Some j -> Format.fprintf fmt "\n\tlexbuf.read <- %i;\n\tlexbuf.pos_e_cnum <- lexbuf.current;\n\t" j
   end;
-  print_string name;
-  print_int i;
-  print_newline ();
   (*Format.fprintf fmt "lexbuf.current <- lexbuf.current + 1;\n\t";*)
   Format.fprintf fmt "match int_of_char lexbuf.text.[lexbuf.current] with\n";
   Cmap.iter (pp_ocaml_transition_old fmt name) transition;
@@ -291,11 +284,48 @@ let pp_ocaml_regexp fmt (s, reg) =
   Imap.iter (pp_ocaml_autom_state fmt s autom.term2) autom.trans2;
 ;;
 
+let pp_ocaml_regexp_old fmt (s, reg) = 
+  let is_first = !isFirst in
+  isFirst := false;
+  let rec chercheBornes = function
+    | Epsilon -> Iset.empty
+    | Character (Rule, i) -> Iset.singleton i
+    | Character _ -> Iset.empty
+    | Star r -> chercheBornes r
+    | Concat (r1, r2) | Union (r1, r2) -> Iset.union (chercheBornes r1) (chercheBornes r2)
+  in let autom = try createAutom reg with Not_found -> assert false in
+  Format.fprintf fmt "%s %s lexbuf = \n" (if is_first then "let rec" else "and") s;
+  Format.fprintf fmt "\n\tif lexbuf.current = String.length lexbuf.text then EOF else begin\n\tlexbuf.pos_b_cnum <- lexbuf.pos_e_cnum;\n\ttry %s_%i lexbuf\n with
+  | _ -> begin
+    let i = lexbuf.read in
+    lexbuf.read <- 0;
+    lexbuf.current <- lexbuf.pos_e_cnum;
+    if lexbuf.pos_e_cnum <= lexbuf.pos_b_cnum then failwith \"Empty token\"
+" s autom.start2;
+  let aux i = 
+      let code = try Hashtbl.find Ferrolex_var.hashCode i with Not_found -> pp_regexp reg; print_string "\n"; print_string " "; print_int i; print_newline (); assert false in
+      let var = try Hashtbl.find Ferrolex_var.hashNames i with Not_found -> assert false in
+      match var with
+        | None -> Format.fprintf fmt "\t\telse if i = %i then begin %s end\n" i code
+        | Some name -> Format.fprintf fmt "\t\telse if i = %i then let %s = String.sub lexbuf.text lexbuf.pos_b_cnum (lexbuf.pos_e_cnum - lexbuf.pos_b_cnum) in begin %s end\n" i name code
+  in Iset.iter aux (chercheBornes reg);
+  Format.fprintf fmt "\t\telse assert false\n\t\tend end\n";
+  Imap.iter (pp_ocaml_autom_state_old fmt s autom.term2) autom.trans2;
+;;
+
 
 let pp_ocaml_main fmt (s1, rlist, s2) = 
   Format.fprintf fmt "%s\n" s1;
   pp_ocaml_header fmt;
   (try List.iter (pp_ocaml_regexp fmt) rlist with Not_found -> assert false);
+  Format.fprintf fmt "\n%s\n" s2;
+  Format.pp_print_flush fmt ()
+;;
+
+let pp_ocaml_main_old fmt (s1, rlist, s2) = 
+  Format.fprintf fmt "%s\n" s1;
+  pp_ocaml_header fmt;
+  (try List.iter (pp_ocaml_regexp_old fmt) rlist with Not_found -> assert false);
   Format.fprintf fmt "\n%s\n" s2;
   Format.pp_print_flush fmt ()
 ;;
