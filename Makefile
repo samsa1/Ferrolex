@@ -1,7 +1,7 @@
 LEXER = lexer.frl
 
 all:build
-	@echo "Everything builded !"
+	@echo "Everything built !"
 build:
 	@ ../Samenhir/samenhir -v2 ferrolexParser.sam
 	@ ocamllex -q ferrolexLexer.mll
