@@ -96,6 +96,29 @@ let convert autom =
     {start2 = Smap.find autom.start !valeurs; trans2 = !transitions; term2 = term}
 ;;
 
+let diminue_taille m =
+  let deb = ref (-1) in
+  let fin = ref (-1) in
+  let sortie = ref [] in
+  let aux s = 
+  if !fin = -1 then begin
+    deb := s;
+    fin := s
+    end
+  else if !fin + 1 = s then fin := s
+  else begin
+    sortie := (!deb, !fin):: !sortie;
+    deb := s;
+    fin := s;
+    end
+  in  Iset.iter aux m;
+  if !deb = -1 then [] else (!deb, !fin)::!sortie
+
+let optimiseTrans trans = 
+  let m = Cmap.fold (fun key next m -> if Imap.mem next m then Imap.add next (Iset.add key (Imap.find next m)) m else Imap.add next (Iset.singleton key) m) trans Imap.empty
+  in Cmap.map diminue_taille m
+;;
+
 let createAutom r = 
   convert (make_dfa r)
 ;;
@@ -193,8 +216,17 @@ let newLexbuf text = {
 
 ";;
 
-let pp_ocaml_transition fmt name character next =
+let pp_ocaml_transition_old fmt name character next =
   Format.fprintf fmt "\t\t|%i -> %s_%i (incrPos lexbuf)\n" character name next
+;;
+
+let pp_ocaml_transition fmt name next liste =
+  Format.fprintf fmt "\tif ";
+  let aux1 fmt (d, f) =
+      if d = f then Format.fprintf fmt "chr = %i" d else Format.fprintf fmt "(%i <= chr && chr <= %i)" d f
+  in let aux pos = if pos = 0 then Format.fprintf fmt "%a" aux1 else Format.fprintf fmt "||%a" aux1 in
+  List.iteri aux liste;
+  Format.fprintf fmt " then %s_%i (incrPos lexbuf) else\n" name next;
 ;;
 
 let pp_ocaml_autom_state fmt name (term: int option Imap.t) i transition = 
@@ -208,8 +240,25 @@ let pp_ocaml_autom_state fmt name (term: int option Imap.t) i transition =
   print_int i;
   print_newline ();
   (*Format.fprintf fmt "lexbuf.current <- lexbuf.current + 1;\n\t";*)
+  Format.fprintf fmt "let chr = int_of_char lexbuf.text.[lexbuf.current] in\n";
+  let minimized_trans = optimiseTrans transition in
+  Cmap.iter (pp_ocaml_transition fmt name) minimized_trans;
+  Format.fprintf fmt "\traise Nothing\n"
+;;
+
+let pp_ocaml_autom_state_old fmt name (term: int option Imap.t) i transition = 
+  Format.fprintf fmt "and %s_%i lexbuf = " name i;
+  print_int i;
+  begin match Imap.find i term with 
+    |None -> ()
+    |Some j -> Format.fprintf fmt "\n\tlexbuf.read <- %i;\n\tlexbuf.pos_e_cnum <- lexbuf.current;\n\t" j
+  end;
+  print_string name;
+  print_int i;
+  print_newline ();
+  (*Format.fprintf fmt "lexbuf.current <- lexbuf.current + 1;\n\t";*)
   Format.fprintf fmt "match int_of_char lexbuf.text.[lexbuf.current] with\n";
-  Cmap.iter (pp_ocaml_transition fmt name) transition;
+  Cmap.iter (pp_ocaml_transition_old fmt name) transition;
   Format.fprintf fmt "\t\t|_ -> raise Nothing\n"
 ;;
 
