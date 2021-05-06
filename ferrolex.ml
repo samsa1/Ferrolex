@@ -31,7 +31,7 @@ let main () =
   let language = decryptLang (String.lowercase_ascii !lang) in
   Ferrolex_var.default_error := (match language with
     |Ocaml -> "failwith \"End of file not implemented for this rule\""
-    |Rust -> "Err(())");
+    |Rust -> "Err(\"end of string not handled\")");
   let f = open_in !file in
   let buf = Lexing.from_channel f in
   let parsed = try FerrolexParser.file FerrolexLexer.token buf

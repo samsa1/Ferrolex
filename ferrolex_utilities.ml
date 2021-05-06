@@ -62,7 +62,7 @@ let make_dfa rule =
         t := Cmap.add c suite !t;
         transitions suite
       done;
-(*)      let aux = function 
+(*     let aux = function 
         |(Rule, _) -> ()
         |(Single c, i) -> begin
             let suite = next_state rule q c in
@@ -361,29 +361,29 @@ pub struct Lexbuf {
   pos_e_cnum : usize,
   current : usize,
   read : usize,
-  text : &'static [u8],
+  text : String,
   len : usize,
 }
 
 impl Lexbuf {
-  fn new_line(&mut self) {
+  fn newline(&mut self) {
     self.pos_b_lnum = self.pos_b_lnum + 1;
   }
 
-  fn incr_pos(self) -> Self {
+  fn incr_pos(&mut self) -> &mut Self {
     self.current = self.current + 1;
     self
   }
 
-  pub fn new(text : &'static str) -> Self {
+  pub fn new(text : String) -> Self {
     Lexbuf {
       pos_b_lnum : 1,
       pos_b_cnum : 0,
       pos_e_cnum : 0,
       current : 0,
       read : 0,
-      text : text.as_bytes(),
       len : text.len(),
+      text : text,
     }
   }
 
@@ -404,7 +404,7 @@ impl Lexbuf {
     if self.len <= self.current {
       Err(0)
     } else {
-      Ok(self.text[self.current] as u8)
+      Ok(self.text.chars().nth(self.current).unwrap() as u8)
     }
   }
 
@@ -417,8 +417,12 @@ impl Lexbuf {
     self.pos_b_cnum = self.pos_e_cnum
   }
 
-  fn get_token(&self) -> &[u8] {
-    &self.text[self.pos_b_cnum..self.pos_e_cnum+1]
+  fn get_token(&self) -> String {
+    let mut s = String::new();
+    for i in self.pos_b_cnum..=self.pos_e_cnum {
+      s.push(self.text.chars().nth(i).unwrap());
+    }
+    s
   }
 
 }
@@ -435,7 +439,7 @@ let pp_rust_transition fmt name next liste =
 ;;
 
 let pp_rust_autom_state fmt name (term: int option Imap.t) i transition = 
-  Format.fprintf fmt "fn %s_%i(mut lexbuf : &Lexbuf) -> Result<(),()> { " name i;
+  Format.fprintf fmt "fn %s_%i(lexbuf : &mut Lexbuf) -> Result<(),()> { " name i;
   begin match Imap.find i term with 
     |None -> ()
     |Some j -> Format.fprintf fmt "\n\tlexbuf.set_read(%i);\n\t" j
@@ -454,7 +458,7 @@ let pp_rust_regexp fmt (s, reg, eof_code) =
     | Star r -> chercheBornes r
     | Concat (r1, r2) | Union (r1, r2) -> Iset.union (chercheBornes r1) (chercheBornes r2)
   in let autom = try createAutom reg with Not_found -> assert false in
-  Format.fprintf fmt "fn %s (mut lexbuf: &Lexbuf) -> Result<%s, &'static str> { \n" s !token_type;
+  Format.fprintf fmt "fn %s (lexbuf: &mut Lexbuf) -> Result<%s, &'static str> { \n" s !token_type;
   Format.fprintf fmt "\tif lexbuf.finished() {\n\t\t %s \n\t} else {
     lexbuf.new_extremity();
     match %s_%i(lexbuf) {
@@ -471,7 +475,7 @@ let pp_rust_regexp fmt (s, reg, eof_code) =
         | None -> Format.fprintf fmt "\t\telse if i == %i { %s }\n" i code
         | Some name -> Format.fprintf fmt "\t\telse if i == %i { let %s = lexbuf.get_token(); %s }\n" i name code
   in Iset.iter aux (chercheBornes reg);
-  Format.fprintf fmt "\t\telse { Err(\"Undefined rule, should not happen, please report this\")\n\t\t}\n\t}\n}\n";
+  Format.fprintf fmt "\t\telse { Err(\"Undefined rule, should not happen, please report this\")\n\t\t}\n\t\t}\n\t}\n\t}\n}\n";
   Imap.iter (pp_rust_autom_state fmt s autom.term2) autom.trans2;
 ;;
 

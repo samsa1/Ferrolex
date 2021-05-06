@@ -4,7 +4,7 @@ open FerrolexParser
 
 let word =
     let keywords = Hashtbl.create 12 in
-    let words = [("as", AS); ("let", LET); ("parse", PARSE); "rule", RULE; "and", AND; "eof", CHAR '\x00'] in
+    let words = [("as", AS); ("let", LET); ("parse", PARSE); "rule", RULE; "and", AND; "eof", EOF_WORD] in
     let () = List.iter (fun (s, t) -> Hashtbl.add keywords s t) words in
     let test x = 
         if Hashtbl.mem keywords x then Hashtbl.find keywords x else IDENT x
