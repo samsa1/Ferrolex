@@ -353,7 +353,7 @@ let pp_ocaml_main_old fmt file =
 
 let pp_rust_header fmt =
   Format.fprintf fmt "
-use std::str;
+use alloc::string::String;
 
 pub struct Lexbuf {
   pos_b_lnum : usize,
@@ -435,7 +435,7 @@ let pp_rust_transition fmt name next liste =
 ;;
 
 let pp_rust_autom_state fmt name (term: int option Imap.t) i transition = 
-  Format.fprintf fmt "fn %s_%i(lexbuf : Lexbuf) -> Result<(),()> { " name i;
+  Format.fprintf fmt "fn %s_%i(mut lexbuf : &Lexbuf) -> Result<(),()> { " name i;
   begin match Imap.find i term with 
     |None -> ()
     |Some j -> Format.fprintf fmt "\n\tlexbuf.set_read(%i);\n\t" j
@@ -454,7 +454,7 @@ let pp_rust_regexp fmt (s, reg, eof_code) =
     | Star r -> chercheBornes r
     | Concat (r1, r2) | Union (r1, r2) -> Iset.union (chercheBornes r1) (chercheBornes r2)
   in let autom = try createAutom reg with Not_found -> assert false in
-  Format.fprintf fmt "fn %s (lexbuf: Lexbuf) -> Result<%s, &'static str> { \n" s !token_type;
+  Format.fprintf fmt "fn %s (mut lexbuf: &Lexbuf) -> Result<%s, &'static str> { \n" s !token_type;
   Format.fprintf fmt "\tif lexbuf.finished() {\n\t\t %s \n\t} else {
     lexbuf.new_extremity();
     match %s_%i(lexbuf) {
@@ -471,13 +471,14 @@ let pp_rust_regexp fmt (s, reg, eof_code) =
         | None -> Format.fprintf fmt "\t\telse if i == %i { %s }\n" i code
         | Some name -> Format.fprintf fmt "\t\telse if i == %i { let %s = lexbuf.get_token(); %s }\n" i name code
   in Iset.iter aux (chercheBornes reg);
-  Format.fprintf fmt "\t\telse { Err(\"Undefined rule, should not happen, please report this\")\n\t\t}\n\t}\n}";
+  Format.fprintf fmt "\t\telse { Err(\"Undefined rule, should not happen, please report this\")\n\t\t}\n\t}\n}\n";
   Imap.iter (pp_rust_autom_state fmt s autom.term2) autom.trans2;
 ;;
 
 let pp_rust_main fmt file = 
   pp_rust_header fmt;
-  Format.fprintf fmt "/*%s*/\n" file.header;
+  Format.fprintf fmt "%s\n" file.header;
   (try List.iter (pp_rust_regexp fmt) file.reg_list with Not_found -> assert false);
-  Format.fprintf fmt "/*\n%s\n*/\n" file.bottom;
+  Format.fprintf fmt "\n%s\n\n" file.bottom;
   Format.pp_print_flush fmt ()
+

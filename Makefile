@@ -7,7 +7,7 @@ build:
 	@ ocamllex -q ferrolexLexer.mll
 	@ ocamlopt unix.cmxa ferrolexAst.ml ferrolex_var.ml ferrolex_utilities.mli ferrolex_utilities.ml ferrolexParser.mli ferrolexParser.ml ferrolexLexer.ml ferrolex.ml -o ferrolex -O3
 	@ rm *.cmi *.cmx *.o ferrolexLexer.ml
-	@ rm ferrolexParser.ml ferrolexParser.mli
+	#@ rm ferrolexParser.ml ferrolexParser.mli
 
 build_timed:
 	time /Users/samuel/Programmes/Samenhir/samenhir -v2 ferrolexParser.sam

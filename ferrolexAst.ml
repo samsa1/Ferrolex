@@ -24,7 +24,8 @@ type regexp =
   | Character of icharSet
   | Union of regexp * regexp
   | Concat of regexp * regexp
-  | Star of regexp;;
+  | Star of regexp
+;;
 
 module CsetOld = Set.Make(struct type t = ichar let compare = compare end);;
 module Cset = Set.Make(struct type t = icharSet let compare = compare end);;
