@@ -3,6 +3,8 @@ open FerrolexAst
 
 let max_char = ref 255;;
 let min_char = ref 0;;
+let token_type = ref "parser::Token";;
+
 let rec null = function 
 	| Epsilon -> true 
 	| Character _ -> false
@@ -182,7 +184,12 @@ let rec pp_file = function
       end
 ;;
 
-(* pretty printer of DFA *)
+(***************************************************)
+(*                                                 *)
+(*                   OCAML CODE                    *)
+(*                                                 *)
+(***************************************************)
+
 let isFirst = ref true
 ;;
 let pp_ocaml_header fmt =
@@ -218,10 +225,6 @@ let newLexbuf text = {
 
 ";;
 
-let pp_ocaml_transition_old fmt name character next =
-  Format.fprintf fmt "\t\t|%i -> %s_%i (incrPos lexbuf)\n" character name next
-;;
-
 let pp_ocaml_transition fmt name next liste =
   Format.fprintf fmt "\tif ";
   let aux1 fmt (d, f) =
@@ -243,6 +246,55 @@ let pp_ocaml_autom_state fmt name (term: int option Imap.t) i transition =
   Format.fprintf fmt "\traise Nothing\n"
 ;;
 
+let pp_ocaml_regexp fmt (s, reg, eof_code) = 
+  let is_first = !isFirst in
+  isFirst := false;
+  let rec chercheBornes = function
+    | Epsilon -> Iset.empty
+    | Character (Rule, i) -> Iset.singleton i
+    | Character _ -> Iset.empty
+    | Star r -> chercheBornes r
+    | Concat (r1, r2) | Union (r1, r2) -> Iset.union (chercheBornes r1) (chercheBornes r2)
+  in let autom = try createAutom reg with Not_found -> assert false in
+  Format.fprintf fmt "%s %s lexbuf = \n" (if is_first then "let rec" else "and") s;
+  Format.fprintf fmt "\tif lexbuf.current = String.length lexbuf.text then %s else begin\n\tlexbuf.pos_b_cnum <- lexbuf.pos_e_cnum;\n\ttry %s_%i lexbuf\n with
+  | _ -> begin
+    let i = lexbuf.read in
+    lexbuf.read <- 0;
+    lexbuf.current <- lexbuf.pos_e_cnum;
+    if lexbuf.pos_e_cnum <= lexbuf.pos_b_cnum then failwith \"Empty token\"
+" eof_code s autom.start2;
+  let aux i = 
+      let code = try Hashtbl.find Ferrolex_var.hashCode i with Not_found -> pp_regexp reg; print_string "\n"; print_string " "; print_int i; print_newline (); assert false in
+      let var = try Hashtbl.find Ferrolex_var.hashNames i with Not_found -> assert false in
+      match var with
+        | None -> Format.fprintf fmt "\t\telse if i = %i then begin %s end\n" i code
+        | Some name -> Format.fprintf fmt "\t\telse if i = %i then let %s = String.sub lexbuf.text lexbuf.pos_b_cnum (lexbuf.pos_e_cnum - lexbuf.pos_b_cnum) in begin %s end\n" i name code
+  in Iset.iter aux (chercheBornes reg);
+  Format.fprintf fmt "\t\telse assert false\n\t\tend end\n";
+  Imap.iter (pp_ocaml_autom_state fmt s autom.term2) autom.trans2;
+;;
+
+let pp_ocaml_main fmt file = 
+  pp_ocaml_header fmt;
+  Format.fprintf fmt "%s\n" file.header;
+  (try List.iter (pp_ocaml_regexp fmt) file.reg_list with Not_found -> assert false);
+  Format.fprintf fmt "\n%s\n" file.bottom;
+  Format.pp_print_flush fmt ()
+;;
+
+
+(***************************************************)
+(*                                                 *)
+(*                   OCAML CODE                    *)
+(*                   OLD VERSION                   *)
+(*                                                 *)
+(***************************************************)
+
+let pp_ocaml_transition_old fmt name character next =
+  Format.fprintf fmt "\t\t|%i -> %s_%i (incrPos lexbuf)\n" character name next
+;;
+
 let pp_ocaml_autom_state_old fmt name (term: int option Imap.t) i transition = 
   Format.fprintf fmt "and %s_%i lexbuf = " name i;
   begin match Imap.find i term with 
@@ -255,7 +307,7 @@ let pp_ocaml_autom_state_old fmt name (term: int option Imap.t) i transition =
   Format.fprintf fmt "\t\t|_ -> raise Nothing\n"
 ;;
 
-let pp_ocaml_regexp fmt (s, reg) = 
+let pp_ocaml_regexp_old fmt (s, reg , eof_code) = 
   let is_first = !isFirst in
   isFirst := false;
   let rec chercheBornes = function
@@ -266,42 +318,13 @@ let pp_ocaml_regexp fmt (s, reg) =
     | Concat (r1, r2) | Union (r1, r2) -> Iset.union (chercheBornes r1) (chercheBornes r2)
   in let autom = try createAutom reg with Not_found -> assert false in
   Format.fprintf fmt "%s %s lexbuf = \n" (if is_first then "let rec" else "and") s;
-  Format.fprintf fmt "\n\tif lexbuf.current = String.length lexbuf.text then EOF else begin\n\tlexbuf.pos_b_cnum <- lexbuf.pos_e_cnum;\n\ttry %s_%i lexbuf\n with
+  Format.fprintf fmt "\tif lexbuf.current = String.length lexbuf.text then %s else begin\n\tlexbuf.pos_b_cnum <- lexbuf.pos_e_cnum;\n\ttry %s_%i lexbuf\n with
   | _ -> begin
     let i = lexbuf.read in
     lexbuf.read <- 0;
     lexbuf.current <- lexbuf.pos_e_cnum;
     if lexbuf.pos_e_cnum <= lexbuf.pos_b_cnum then failwith \"Empty token\"
-" s autom.start2;
-  let aux i = 
-      let code = try Hashtbl.find Ferrolex_var.hashCode i with Not_found -> pp_regexp reg; print_string "\n"; print_string " "; print_int i; print_newline (); assert false in
-      let var = try Hashtbl.find Ferrolex_var.hashNames i with Not_found -> assert false in
-      match var with
-        | None -> Format.fprintf fmt "\t\telse if i = %i then begin %s end\n" i code
-        | Some name -> Format.fprintf fmt "\t\telse if i = %i then let %s = String.sub lexbuf.text lexbuf.pos_b_cnum (lexbuf.pos_e_cnum - lexbuf.pos_b_cnum) in begin %s end\n" i name code
-  in Iset.iter aux (chercheBornes reg);
-  Format.fprintf fmt "\t\telse assert false\n\t\tend end\n";
-  Imap.iter (pp_ocaml_autom_state fmt s autom.term2) autom.trans2;
-;;
-
-let pp_ocaml_regexp_old fmt (s, reg) = 
-  let is_first = !isFirst in
-  isFirst := false;
-  let rec chercheBornes = function
-    | Epsilon -> Iset.empty
-    | Character (Rule, i) -> Iset.singleton i
-    | Character _ -> Iset.empty
-    | Star r -> chercheBornes r
-    | Concat (r1, r2) | Union (r1, r2) -> Iset.union (chercheBornes r1) (chercheBornes r2)
-  in let autom = try createAutom reg with Not_found -> assert false in
-  Format.fprintf fmt "%s %s lexbuf = \n" (if is_first then "let rec" else "and") s;
-  Format.fprintf fmt "\n\tif lexbuf.current = String.length lexbuf.text then EOF else begin\n\tlexbuf.pos_b_cnum <- lexbuf.pos_e_cnum;\n\ttry %s_%i lexbuf\n with
-  | _ -> begin
-    let i = lexbuf.read in
-    lexbuf.read <- 0;
-    lexbuf.current <- lexbuf.pos_e_cnum;
-    if lexbuf.pos_e_cnum <= lexbuf.pos_b_cnum then failwith \"Empty token\"
-" s autom.start2;
+" eof_code s autom.start2;
   let aux i = 
       let code = try Hashtbl.find Ferrolex_var.hashCode i with Not_found -> pp_regexp reg; print_string "\n"; print_string " "; print_int i; print_newline (); assert false in
       let var = try Hashtbl.find Ferrolex_var.hashNames i with Not_found -> assert false in
@@ -313,37 +336,148 @@ let pp_ocaml_regexp_old fmt (s, reg) =
   Imap.iter (pp_ocaml_autom_state_old fmt s autom.term2) autom.trans2;
 ;;
 
-
-let pp_ocaml_main fmt (s1, rlist, s2) = 
-  Format.fprintf fmt "%s\n" s1;
+let pp_ocaml_main_old fmt file = 
   pp_ocaml_header fmt;
-  (try List.iter (pp_ocaml_regexp fmt) rlist with Not_found -> assert false);
-  Format.fprintf fmt "\n%s\n" s2;
+  Format.fprintf fmt "%s\n" file.header;
+  (try List.iter (pp_ocaml_regexp_old fmt) file.reg_list with Not_found -> assert false);
+  Format.fprintf fmt "\n%s\n" file.bottom;
   Format.pp_print_flush fmt ()
 ;;
 
-let pp_ocaml_main_old fmt (s1, rlist, s2) = 
-  Format.fprintf fmt "%s\n" s1;
-  pp_ocaml_header fmt;
-  (try List.iter (pp_ocaml_regexp_old fmt) rlist with Not_found -> assert false);
-  Format.fprintf fmt "\n%s\n" s2;
+
+(***************************************************)
+(*                                                 *)
+(*                    RUST CODE                    *)
+(*                                                 *)
+(***************************************************)
+
+let pp_rust_header fmt =
+  Format.fprintf fmt "
+use std::str;
+
+pub struct Lexbuf {
+  pos_b_lnum : usize,
+  pos_b_cnum : usize,
+  pos_e_cnum : usize,
+  current : usize,
+  read : usize,
+  text : &'static [u8],
+  len : usize,
+}
+
+impl Lexbuf {
+  fn new_line(&mut self) {
+    self.pos_b_lnum = self.pos_b_lnum + 1;
+  }
+
+  fn incr_pos(self) -> Self {
+    self.current = self.current + 1;
+    self
+  }
+
+  pub fn new(text : &'static str) -> Self {
+    Lexbuf {
+      pos_b_lnum : 1,
+      pos_b_cnum : 0,
+      pos_e_cnum : 0,
+      current : 0,
+      read : 0,
+      text : text.as_bytes(),
+      len : text.len(),
+    }
+  }
+
+  fn length(&self) -> usize {
+    self.len
+  }
+
+  fn reset_current(&mut self) { self.current = self.pos_e_cnum; }
+
+  fn get_read(&mut self) -> usize { self.read }
+  fn set_read(&mut self, i : usize) {
+    self.pos_e_cnum = self.current;
+    self.read = i;
+  }
+
+
+  fn next_char(&mut self) -> Result<u8, u8> {
+    if self.len <= self.current {
+      Err(0)
+    } else {
+      Ok(self.text[self.current] as u8)
+    }
+  }
+
+
+  fn finished(&mut self) -> bool {
+    self.len == self.current
+  }
+
+  fn new_extremity(&mut self) {
+    self.pos_b_cnum = self.pos_e_cnum
+  }
+
+  fn get_token(&self) -> &[u8] {
+    &self.text[self.pos_b_cnum..self.pos_e_cnum+1]
+  }
+
+}
+
+";;
+
+let pp_rust_transition fmt name next liste =
+  Format.fprintf fmt "\tif ";
+  let aux1 fmt (d, f) =
+      if d = f then Format.fprintf fmt "chr == %i" d else Format.fprintf fmt "(%i <= chr && chr <= %i)" d f
+  in let aux pos = if pos = 0 then Format.fprintf fmt "%a" aux1 else Format.fprintf fmt "||%a" aux1 in
+  List.iteri aux liste;
+  Format.fprintf fmt " { %s_%i(lexbuf.incr_pos()) } else\n" name next;
+;;
+
+let pp_rust_autom_state fmt name (term: int option Imap.t) i transition = 
+  Format.fprintf fmt "fn %s_%i(lexbuf : Lexbuf) -> Result<(),()> { " name i;
+  begin match Imap.find i term with 
+    |None -> ()
+    |Some j -> Format.fprintf fmt "\n\tlexbuf.set_read(%i);\n\t" j
+  end;
+  Format.fprintf fmt "if let Ok(chr) = lexbuf.next_char() {\n";
+  let minimized_trans = optimiseTrans transition in
+  Cmap.iter (pp_rust_transition fmt name) minimized_trans;
+  Format.fprintf fmt "\t{ Err(()) }\n\t} else {Err(())}\n}\n"
+;;
+
+let pp_rust_regexp fmt (s, reg, eof_code) = 
+  let rec chercheBornes = function
+    | Epsilon -> Iset.empty
+    | Character (Rule, i) -> Iset.singleton i
+    | Character _ -> Iset.empty
+    | Star r -> chercheBornes r
+    | Concat (r1, r2) | Union (r1, r2) -> Iset.union (chercheBornes r1) (chercheBornes r2)
+  in let autom = try createAutom reg with Not_found -> assert false in
+  Format.fprintf fmt "fn %s (lexbuf: Lexbuf) -> Result<%s, &'static str> { \n" s !token_type;
+  Format.fprintf fmt "\tif lexbuf.finished() {\n\t\t %s \n\t} else {
+    lexbuf.new_extremity();
+    match %s_%i(lexbuf) {
+      _ => {
+        let i = lexbuf.get_read();
+        lexbuf.reset_current();
+        lexbuf.set_read(0);
+        if lexbuf.pos_e_cnum <= lexbuf.pos_b_cnum { Err(\"Reached End of File without any corrresponding rule\") }
+" eof_code s autom.start2;
+  let aux i = 
+      let code = try Hashtbl.find Ferrolex_var.hashCode i with Not_found -> pp_regexp reg; print_string "\n"; print_string " "; print_int i; print_newline (); assert false in
+      let var = try Hashtbl.find Ferrolex_var.hashNames i with Not_found -> assert false in
+      match var with
+        | None -> Format.fprintf fmt "\t\telse if i == %i { %s }\n" i code
+        | Some name -> Format.fprintf fmt "\t\telse if i == %i { let %s = lexbuf.get_token(); %s }\n" i name code
+  in Iset.iter aux (chercheBornes reg);
+  Format.fprintf fmt "\t\telse { Err(\"Undefined rule, should not happen, please report this\")\n\t\t}\n\t}\n}";
+  Imap.iter (pp_rust_autom_state fmt s autom.term2) autom.trans2;
+;;
+
+let pp_rust_main fmt file = 
+  pp_rust_header fmt;
+  Format.fprintf fmt "/*%s*/\n" file.header;
+  (try List.iter (pp_rust_regexp fmt) file.reg_list with Not_found -> assert false);
+  Format.fprintf fmt "/*\n%s\n*/\n" file.bottom;
   Format.pp_print_flush fmt ()
-;;
-
-let main (s1, r, s2) = 
-  print_string "Header : \n";
-  print_string s1;
-  pp_file r;
-  print_string "\n\nBottom : \n";
-  print_string s2;
-  print_newline ();
-  let aux (s, reg) = 
-    print_string s;
-    print_string " : ";
-    let autom = createAutom reg in
-    print_int (Imap.cardinal autom.trans2);
-    print_newline ();
-  in List.iter aux r
-;;
-
-

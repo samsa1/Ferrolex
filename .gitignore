@@ -8,3 +8,4 @@ ast.ml
 ferrolex
 _build
 *.byte
+*.rs

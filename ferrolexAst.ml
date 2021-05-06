@@ -49,3 +49,10 @@ type autom2 = {
 	trans2 : int Cmap.t Imap.t;
   term2 : int option Imap.t
 }
+
+
+type file = {
+  header : string;
+  reg_list : (string * regexp * string) list;
+  bottom : string;
+}

@@ -13,7 +13,7 @@ let hashRules = Hashtbl.create 16;;
 %token<char> CHAR
 %token<string> STRING
 %token<int> INT
-%token AND ANY AS CRD CRG EQUAL EOF EXCEPT KLEENE LET MINUS
+%token AND ANY AS CRD CRG EQUAL EOF EOF_WORD EXCEPT KLEENE LET MINUS
 %token PARD PARG PARSE PLUS RULE VERT
 
 %left VERT
@@ -24,12 +24,24 @@ let hashRules = Hashtbl.create 16;;
 
 %%
 
-file<string * ((string * FerrolexAst.regexp) list) * string>:
-    | h = CODE f = file2 {let (l, fe) = f in (h, l, fe)}
-    | f = file2 {let (l, fe) = f in ("", l, fe)}
+file<FerrolexAst.file>:
+    | h = CODE f = file2 {let (l, fe) = f in 
+        {
+            header = h;
+            reg_list = l;
+            bottom = fe
+        }
+    }
+    | f = file2 {let (l, fe) = f in 
+        {
+            header = "";
+            reg_list = l;
+            bottom = fe
+        }
+    }
 ;
 
-file2<((string * FerrolexAst.regexp) list) * string>:
+file2<((string * FerrolexAst.regexp * string) list) * string>:
     | d = def f = file2 {f}
     | f = rulesDef {f}
 ;
@@ -40,17 +52,25 @@ def<unit>:
         }
 ;
 
-rulesDef<((string * FerrolexAst.regexp) list) * string>:
+rulesDef<((string * FerrolexAst.regexp * string) list) * string>:
     | RULE name = IDENT EQUAL PARSE l = rulesMatch fileEnd = rulesDef2 {
         let (liste, bottom) = fileEnd in
-        (name,l)::liste, bottom
+        (name,l, !Ferrolex_var.default_error)::liste, bottom
+        }
+    | RULE name = IDENT EQUAL PARSE VERT EOF_WORD c = CODE l = rulesMatch fileEnd = rulesDef2 {
+        let (liste, bottom) = fileEnd in
+        (name,l, c)::liste, bottom
         }
 ;
 
-rulesDef2<((string * FerrolexAst.regexp) list) * string>:
+rulesDef2<((string * FerrolexAst.regexp * string) list) * string>:
     | AND name = IDENT EQUAL PARSE l = rulesMatch fileEnd = rulesDef2 {
         let (liste, bottom) = fileEnd in
-        (name,l)::liste, bottom
+        (name, l, !Ferrolex_var.default_error)::liste, bottom
+        }
+    | AND name = IDENT EQUAL PARSE VERT EOF_WORD c = CODE l = rulesMatch fileEnd = rulesDef2 {
+        let (liste, bottom) = fileEnd in
+        (name, l, c)::liste, bottom
         }
     | f = fileEnd {([], f) }
 ;

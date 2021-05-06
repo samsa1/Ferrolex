@@ -4,6 +4,7 @@ let hashCode: ((int, string) Hashtbl.t) = Hashtbl.create 64
 
 let hashNames: ((int, string option) Hashtbl.t) = Hashtbl.create 64
 
+let default_error = ref ""
 let num = ref 0
 let new_char (c:char) = 
   let i = !num in incr num;
