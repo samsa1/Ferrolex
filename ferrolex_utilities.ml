@@ -458,7 +458,7 @@ let pp_rust_regexp fmt (s, reg, eof_code) =
     | Star r -> chercheBornes r
     | Concat (r1, r2) | Union (r1, r2) -> Iset.union (chercheBornes r1) (chercheBornes r2)
   in let autom = try createAutom reg with Not_found -> assert false in
-  Format.fprintf fmt "fn %s (lexbuf: &mut Lexbuf) -> Result<%s, &'static str> { \n" s !token_type;
+  Format.fprintf fmt "pub fn %s (lexbuf: &mut Lexbuf) -> Result<%s, &'static str> { \n" s !token_type;
   Format.fprintf fmt "\tif lexbuf.finished() {\n\t\t %s \n\t} else {
     lexbuf.new_extremity();
     match %s_%i(lexbuf) {
