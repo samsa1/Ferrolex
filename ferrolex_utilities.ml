@@ -5,129 +5,6 @@ let max_char = ref 255;;
 let min_char = ref 0;;
 let token_type = ref "parser::Token";;
 
-let rec null = function 
-	| Epsilon -> true 
-	| Character _ -> false
-	| Star _ -> true
-	| Union (a,b) -> null a || null b 
-	| Concat (a,b) -> null a && null b;;
-
-let rec first = function 
-  | Epsilon -> Cset.empty
-  | Character a -> Cset.singleton a
-  | Star s -> first s 
-  | Union (a,b) -> Cset.union (first a) (first b)
-  | Concat (a,b) -> if null a then Cset.union (first a) (first b) else first a;;
-
-let rec last = function 
-  | Epsilon -> Cset.empty
-  | Character a -> Cset.singleton a
-  | Star s -> last s 
-  | Union (a,b) -> Cset.union (last a) (last b)
-  | Concat (a,b) -> if null b then Cset.union (last a) (last b) else last b;;
-
-let rec follow chr  = function
-	| Epsilon -> Cset.empty
-	| Character _ -> Cset.empty
-	| Star s -> let fin = last s in if Cset.mem chr fin then 
-			Cset.union (follow chr s) (first s)
-		else follow chr s 
-	| Concat (a,b) -> let fin = last a in
-		if Cset.mem chr fin then 
-			Cset.union (follow chr a) (Cset.union (first b) (follow chr b))
-		else Cset.union (follow chr a) (follow chr b)
-	| Union (a,b) -> Cset.union (follow chr a) (follow chr b)
-
-let rec is_in chr = function
-  | Single i -> i = chr
-  | Segment (i, j) -> i <= chr && chr <= j
-  | Rule -> false
-  | Any -> true
-  | Except (r1, r2) -> is_in chr r1 && not (is_in chr r2)
-  | SetUnion (r1, r2) -> (is_in chr r1) || (is_in chr r2)
-;;
-
-let next_state reg cset chr =
-  Cset.fold (fun (c,i) cset2 -> if is_in chr c then Cset.union cset2 (follow (c,i) reg) else cset2) cset Cset.empty
-;;
-let make_dfa rule = 
-  let trans = ref Smap.empty in 
-  let term = ref Smap.empty in 
-  let rec transitions q = 
-    if Smap.mem q !trans then () else begin
-      trans := Smap.add q Cmap.empty !trans;
-      let t = ref Cmap.empty in
-      for c = !min_char to !max_char do 
-        let suite = next_state rule q c in
-        t := Cmap.add c suite !t;
-        transitions suite
-      done;
-(*     let aux = function 
-        |(Rule, _) -> ()
-        |(Single c, i) -> begin
-            let suite = next_state rule q c in
-            t := Cmap.add c suite !t;
-            transitions suite
-          end
-        | (Segment (i1, i2), i) -> begin
-            for c = i1 to i2+1 do
-              let suite = next_state rule q c in
-              t := Cmap.add c suite !t;
-              transitions suite
-            done;
-          end
-      in  
-      Cset.iter aux q;*)
-      let final = Cset.fold (fun (c, i) v -> if c <> Rule then v else match v with |None -> Some i | Some j -> Some (min i j): icharSet -> int option -> int option) q None in
-      term := Smap.add q final !term;
-      trans := Smap.add q !t !trans;
-      end
-  in 
-  let q0 = first rule in  transitions q0;
-  {start = q0; trans = !trans; term = !term};;
-
-let convert autom = 
-    let num = ref 0 in 
-    let valeurs = ref Smap.empty in 
-    Smap.iter (fun k i -> (valeurs := Smap.add k !num !valeurs; num := 1 + !num)) autom.trans;
-    let transitions = ref Imap.empty in 
-    let aux m = 
-      let t = ref Cmap.empty in 
-      Cmap.iter (fun c s -> t := Cmap.add c (match s with s -> Smap.find s !valeurs) !t) m;
-      !t
-    in Smap.iter (fun k m -> transitions := Imap.add (Smap.find k !valeurs) (aux m) !transitions) autom.trans; 
-    let term = Smap.fold (fun t opt m -> Imap.add (Smap.find t !valeurs) opt m) autom.term Imap.empty in
-    {start2 = Smap.find autom.start !valeurs; trans2 = !transitions; term2 = term}
-;;
-
-let diminue_taille m =
-  let deb = ref (-1) in
-  let fin = ref (-1) in
-  let sortie = ref [] in
-  let aux s = 
-  if !fin = -1 then begin
-    deb := s;
-    fin := s
-    end
-  else if !fin + 1 = s then fin := s
-  else begin
-    sortie := (!deb, !fin):: !sortie;
-    deb := s;
-    fin := s;
-    end
-  in  Iset.iter aux m;
-  if !deb = -1 then [] else (!deb, !fin)::!sortie
-
-let optimiseTrans trans = 
-  let m = Cmap.fold (fun key next m -> if Imap.mem next m then Imap.add next (Iset.add key (Imap.find next m)) m else Imap.add next (Iset.singleton key) m) trans Imap.empty
-  in Cmap.map diminue_taille m
-;;
-
-let createAutom r = 
-  convert (make_dfa r)
-;;
-
-
 (* pretty printer of regular expression *)
 let rec pp_regexp_car = function
   | Rule -> assert false
@@ -182,6 +59,130 @@ let rec pp_file = function
         print_newline ();
         pp_file tl;
       end
+;;
+
+
+
+let rec null = function 
+	| Epsilon -> true 
+	| Character _ -> false
+	| Star _ -> true
+	| Union (a,b) -> null a || null b 
+	| Concat (a,b) -> null a && null b;;
+
+let rec first = function 
+  | Epsilon -> Cset.empty
+  | Character a -> Cset.singleton a
+  | Star s -> first s 
+  | Union (a,b) -> Cset.union (first a) (first b)
+  | Concat (a,b) -> if null a then Cset.union (first a) (first b) else first a;;
+
+let rec last = function 
+  | Epsilon -> Cset.empty
+  | Character a -> Cset.singleton a
+  | Star s -> last s 
+  | Union (a,b) -> Cset.union (last a) (last b)
+  | Concat (a,b) -> if null b then Cset.union (last a) (last b) else last b;;
+
+let rec follow chr  = function
+	| Epsilon -> Cset.empty
+	| Character _ -> Cset.empty
+	| Star s -> let fin = last s in if Cset.mem chr fin then 
+			Cset.union (follow chr s) (first s)
+		else follow chr s 
+	| Concat (a,b) -> let fin = last a in
+		if Cset.mem chr fin then 
+			Cset.union (follow chr a) (Cset.union (first b) (follow chr b))
+		else Cset.union (follow chr a) (follow chr b)
+	| Union (a,b) -> Cset.union (follow chr a) (follow chr b)
+
+let rec is_in chr = function
+  | Single i -> i = chr
+  | Segment (i, j) -> i <= chr && chr <= j
+  | Rule -> false
+  | Any -> true
+  | Except (r1, r2) -> is_in chr r1 && not (is_in chr r2)
+  | SetUnion (r1, r2) -> (is_in chr r1) || (is_in chr r2)
+;;
+
+let next_state reg cset chr =
+  Cset.fold (fun (c,i) cset2 -> if is_in chr c then Cset.union cset2 (follow (c,i) reg) else cset2) cset Cset.empty
+;;
+
+let make_dfa rule = 
+  let trans = ref Smap.empty in 
+  let term = ref Smap.empty in 
+  let rec transitions q = 
+    if Smap.mem q !trans then () else
+    begin
+      	trans := Smap.add q Cmap.empty !trans;
+      	let t = ref Cmap.empty in
+      	for c = !min_char to !max_char do 
+        	let suite = next_state rule q c in
+        	if not (Cset.is_empty suite) then
+        	begin
+	        	t := Cmap.add c suite !t;
+    	    	transitions suite;
+    	    end;
+      	done;
+     	let final = Cset.fold
+      		(fun (c, i) v ->
+	      		if c <> Rule
+	      		then v
+	      		else
+	      			match v with
+	      				| None -> Some i
+	      				| Some j -> Some (min i j): icharSet -> int option -> int option)
+      		q
+      		None
+  		in
+      	term := Smap.add q final !term;
+      	trans := Smap.add q !t !trans;
+     end
+  in 
+  let q0 = first rule in  transitions q0;
+  {start = q0; trans = !trans; term = !term};;
+
+let convert autom = 
+    let num = ref 0 in 
+    let valeurs = ref Smap.empty in 
+    Smap.iter (fun k i -> (valeurs := Smap.add k !num !valeurs; num := 1 + !num)) autom.trans;
+    let transitions = ref Imap.empty in 
+    let aux m = 
+      let t = ref Cmap.empty in 
+      Cmap.iter (fun c s -> t := Cmap.add c (match s with s -> Smap.find s !valeurs) !t) m;
+      !t
+    in Smap.iter (fun k m -> transitions := Imap.add (Smap.find k !valeurs) (aux m) !transitions) autom.trans; 
+    let term = Smap.fold (fun t opt m -> Imap.add (Smap.find t !valeurs) opt m) autom.term Imap.empty in
+    Smap.iter (fun k i -> print_int i; print_char ' '; print_int (Cset.cardinal k); print_newline ()) !valeurs;
+    {start2 = Smap.find autom.start !valeurs; trans2 = !transitions; term2 = term}
+;;
+
+let diminue_taille m =
+  let deb = ref (-1) in
+  let fin = ref (-1) in
+  let sortie = ref [] in
+  let aux s = 
+  if !fin = -1 then begin
+    deb := s;
+    fin := s
+    end
+  else if !fin + 1 = s then fin := s
+  else begin
+    sortie := (!deb, !fin):: !sortie;
+    deb := s;
+    fin := s;
+    end
+  in  Iset.iter aux m;
+  if !deb = -1 then [] else (!deb, !fin)::!sortie
+
+let optimiseTrans trans = 
+  let m = Cmap.fold (fun key next m -> if Imap.mem next m then Imap.add next (Iset.add key (Imap.find next m)) m else Imap.add next (Iset.singleton key) m) trans Imap.empty
+  in Cmap.map diminue_taille m
+;;
+
+let createAutom r = 
+  convert (make_dfa r)
 ;;
 
 (***************************************************)
@@ -419,7 +420,7 @@ impl Lexbuf {
 
   fn get_token(&self) -> String {
     let mut s = String::new();
-    for i in self.pos_b_cnum..=self.pos_e_cnum {
+    for i in self.pos_b_cnum..self.pos_e_cnum {
       s.push(self.text.chars().nth(i).unwrap());
     }
     s
@@ -432,7 +433,9 @@ impl Lexbuf {
 let pp_rust_transition fmt name next liste =
   Format.fprintf fmt "\tif ";
   let aux1 fmt (d, f) =
-      if d = f then Format.fprintf fmt "chr == %i" d else Format.fprintf fmt "(%i <= chr && chr <= %i)" d f
+      if d = f then Format.fprintf fmt "chr == %i" d else 
+      	if d > 0 then Format.fprintf fmt "(%i <= chr && chr <= %i)" d f
+      	else Format.fprintf fmt "chr <= %i" f
   in let aux pos = if pos = 0 then Format.fprintf fmt "%a" aux1 else Format.fprintf fmt "||%a" aux1 in
   List.iteri aux liste;
   Format.fprintf fmt " { %s_%i(lexbuf.incr_pos()) } else\n" name next;
