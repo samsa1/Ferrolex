@@ -154,7 +154,6 @@ let convert autom =
       !t
     in Smap.iter (fun k m -> transitions := Imap.add (Smap.find k !valeurs) (aux m) !transitions) autom.trans; 
     let term = Smap.fold (fun t opt m -> Imap.add (Smap.find t !valeurs) opt m) autom.term Imap.empty in
-    Smap.iter (fun k i -> print_int i; print_char ' '; print_int (Cset.cardinal k); print_newline ()) !valeurs;
     {start2 = Smap.find autom.start !valeurs; trans2 = !transitions; term2 = term}
 ;;
 
@@ -432,12 +431,24 @@ impl Lexbuf {
 
 let pp_rust_transition fmt name next liste =
   Format.fprintf fmt "\tif ";
-  let aux1 fmt (d, f) =
-      if d = f then Format.fprintf fmt "chr == %i" d else 
-      	if d > 0 then Format.fprintf fmt "(%i <= chr && chr <= %i)" d f
-      	else Format.fprintf fmt "chr <= %i" f
-  in let aux pos = if pos = 0 then Format.fprintf fmt "%a" aux1 else Format.fprintf fmt "||%a" aux1 in
-  List.iteri aux liste;
+  let aux1 (d, f) =
+      if d = f then "chr == "^string_of_int d else 
+      	if d > !min_char
+      	then 
+      		if f < !max_char
+      		then "("^string_of_int d^" <= chr && chr <= "^string_of_int f ^")"
+      		else  string_of_int d^" <= chr"
+      	else 
+          if f < !max_char 
+          then "chr <= "^string_of_int f
+          else ""
+  in let aux s v = let s2 = aux1 v in
+    if String.length s > 0 && String.length s2 > 0
+    then s ^ " || " ^ s2
+    else s ^ s2 
+  in
+  let str = List.fold_left aux "" liste in
+  Format.fprintf fmt "%s" (if String.length str = 0 then "true" else str);
   Format.fprintf fmt " { %s_%i(lexbuf.incr_pos()) } else\n" name next;
 ;;
 
@@ -447,10 +458,29 @@ let pp_rust_autom_state fmt name (term: int option Imap.t) i transition =
     |None -> ()
     |Some j -> Format.fprintf fmt "\n\tlexbuf.set_read(%i);\n\t" j
   end;
-  Format.fprintf fmt "if let Ok(chr) = lexbuf.next_char() {\n";
   let minimized_trans = optimiseTrans transition in
-  Cmap.iter (pp_rust_transition fmt name) minimized_trans;
-  Format.fprintf fmt "\t{ Err(()) }\n\t} else {Err(())}\n}\n"
+  if Cmap.cardinal minimized_trans = 0
+  then
+    Format.fprintf fmt "Err(())\n}\n"
+  else
+    if Cmap.cardinal minimized_trans = 1
+    then
+      let (k, v) = Cmap.choose minimized_trans in
+      if List.length v = 1 && List.hd v = (!min_char, !max_char)
+      then
+        Format.fprintf fmt "%s_%i(lexbuf.incr_pos())\n}\n" name k
+      else
+        begin
+          Format.fprintf fmt "if let Ok(chr) = lexbuf.next_char() {\n";
+          Cmap.iter (pp_rust_transition fmt name) minimized_trans;
+          Format.fprintf fmt "\t{ Err(()) }\n\t} else {Err(())}\n}\n"
+        end
+    else
+      begin
+        Format.fprintf fmt "if let Ok(chr) = lexbuf.next_char() {\n";
+        Cmap.iter (pp_rust_transition fmt name) minimized_trans;
+        Format.fprintf fmt "\t{ Err(()) }\n\t} else {Err(())}\n}\n"
+      end
 ;;
 
 let pp_rust_regexp fmt (s, reg, eof_code) = 
